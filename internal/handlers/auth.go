@@ -38,22 +38,42 @@ func (h *Handlers) Register(w http.ResponseWriter, r *http.Request) {
 	// Create session
 	sessionToken, err := h.AuthService.CreateSession(r.Context(), user.ID)
 	if err != nil {
+		log.Error().Err(err).Str("user_id", user.ID.String()).Msg("Failed to create session during registration")
 		render.Status(r, http.StatusInternalServerError)
-		render.JSON(w, r, map[string]string{"error": "Failed to create session"})
+		
+		// Return detailed error in non-production, generic in production
+		errorResponse := map[string]string{"error": "failed to create session"}
+		if h.Config.Env != "production" {
+			errorResponse["details"] = err.Error()
+		}
+		render.JSON(w, r, errorResponse)
 		return
 	}
 
-	// Set HttpOnly cookie with environment-aware settings
-	isDevelopment := h.Config.Env == "development"
-	http.SetCookie(w, &http.Cookie{
+	// Set cookie with production-safe settings
+	isProduction := h.Config.Env == "production"
+	cookie := &http.Cookie{
 		Name:     "session",
 		Value:    sessionToken,
 		Path:     "/",
 		HttpOnly: true,
-		Secure:   !isDevelopment, // true in production (https), false in development (http)
-		SameSite: http.SameSiteLaxMode,
 		MaxAge:   86400, // 24 hours
-	})
+	}
+	
+	if isProduction {
+		// Production: Secure=true, SameSite=None (required for cross-site), no Domain
+		cookie.Secure = true
+		cookie.SameSite = http.SameSiteNoneMode
+		log.Info().Str("user_id", user.ID.String()).Msg("Setting production session cookie: Secure=true, SameSite=None, HttpOnly=true, Path=/")
+	} else {
+		// Development: Secure=false, SameSite=Lax
+		cookie.Secure = false
+		cookie.SameSite = http.SameSiteLaxMode
+		log.Info().Str("user_id", user.ID.String()).Msg("Setting development session cookie: Secure=false, SameSite=Lax, HttpOnly=true, Path=/")
+	}
+	
+	http.SetCookie(w, cookie)
+	log.Info().Str("user_id", user.ID.String()).Msg("Session cookie set successfully")
 
 	render.JSON(w, r, user)
 }
@@ -76,26 +96,42 @@ func (h *Handlers) Login(w http.ResponseWriter, r *http.Request) {
 	// Create session
 	sessionToken, err := h.AuthService.CreateSession(r.Context(), user.ID)
 	if err != nil {
+		log.Error().Err(err).Str("user_id", user.ID.String()).Msg("Failed to create session during login")
 		render.Status(r, http.StatusInternalServerError)
-		render.JSON(w, r, map[string]string{"error": "Failed to create session"})
+		
+		// Return detailed error in non-production, generic in production
+		errorResponse := map[string]string{"error": "failed to create session"}
+		if h.Config.Env != "production" {
+			errorResponse["details"] = err.Error()
+		}
+		render.JSON(w, r, errorResponse)
 		return
 	}
 
-	// Set HttpOnly cookie for local development
-	// Secure: false (required for http://localhost)
-	// SameSite: Lax (works with http://localhost and allows credentials)
-	http.SetCookie(w, &http.Cookie{
+	// Set cookie with production-safe settings
+	isProduction := h.Config.Env == "production"
+	cookie := &http.Cookie{
 		Name:     "session",
 		Value:    sessionToken,
 		Path:     "/",
 		HttpOnly: true,
-		Secure:   false, // false for local dev (http), true for production (https)
-		SameSite: http.SameSiteLaxMode,
 		MaxAge:   86400, // 24 hours
-	})
-
-	// Dev log: login success
-	log.Info().Str("user_id", user.ID.String()).Msg("login success: set session cookie")
+	}
+	
+	if isProduction {
+		// Production: Secure=true, SameSite=None (required for cross-site), no Domain
+		cookie.Secure = true
+		cookie.SameSite = http.SameSiteNoneMode
+		log.Info().Str("user_id", user.ID.String()).Msg("Setting production session cookie: Secure=true, SameSite=None, HttpOnly=true, Path=/")
+	} else {
+		// Development: Secure=false, SameSite=Lax
+		cookie.Secure = false
+		cookie.SameSite = http.SameSiteLaxMode
+		log.Info().Str("user_id", user.ID.String()).Msg("Setting development session cookie: Secure=false, SameSite=Lax, HttpOnly=true, Path=/")
+	}
+	
+	http.SetCookie(w, cookie)
+	log.Info().Str("user_id", user.ID.String()).Msg("Login success: session cookie set successfully")
 
 	render.JSON(w, r, user)
 }
@@ -106,17 +142,35 @@ func (h *Handlers) Logout(w http.ResponseWriter, r *http.Request) {
 		h.AuthService.DeleteSession(r.Context(), cookie.Value)
 	}
 
-	// Set HttpOnly cookie with environment-aware settings for logout
-	isDevelopment := h.Config.Env == "development"
-	http.SetCookie(w, &http.Cookie{
+	// Set cookie for logout with production-safe settings
+	isProduction := h.Config.Env == "production"
+	logoutCookie := &http.Cookie{
 		Name:     "session",
 		Value:    "",
 		Path:     "/",
 		HttpOnly: true,
-		Secure:   !isDevelopment, // true in production (https), false in development (http)
-		SameSite: http.SameSiteLaxMode,
 		MaxAge:   -1,
-	})
+	}
+	
+	if isProduction {
+		logoutCookie.Secure = true
+		logoutCookie.SameSite = http.SameSiteNoneMode
+	} else {
+		logoutCookie.Secure = false
+		logoutCookie.SameSite = http.SameSiteLaxMode
+	}
+	
+	http.SetCookie(w, logoutCookie)
+	
+	if isProduction {
+		cookie.Secure = true
+		cookie.SameSite = http.SameSiteNoneMode
+	} else {
+		cookie.Secure = false
+		cookie.SameSite = http.SameSiteLaxMode
+	}
+	
+	http.SetCookie(w, cookie)
 
 	render.JSON(w, r, map[string]string{"message": "Logged out"})
 }

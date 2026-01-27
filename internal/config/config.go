@@ -96,6 +96,9 @@ func Validate(cfg *Config, isDevelopment bool) error {
 		if cfg.RedisURL == "" || cfg.RedisURL == defaultRedisURL {
 			errors = append(errors, "REDIS_URL must be set to a production Redis instance (cannot use dev default)")
 		}
+		if !strings.HasPrefix(cfg.RedisURL, "redis://") && !strings.HasPrefix(cfg.RedisURL, "rediss://") {
+			errors = append(errors, "REDIS_URL must start with redis:// or rediss://")
+		}
 
 		// Production: CORS_ORIGIN should be set to production URL
 		defaultCORSOrigin := "http://localhost:3000"

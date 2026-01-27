@@ -2,7 +2,9 @@ package database
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
+	"strings"
 
 	_ "github.com/lib/pq" // Register postgres driver for goose migrations
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -37,16 +39,35 @@ func NewRedis(redisURL string) (*redis.Client, error) {
 		return nil, fmt.Errorf("failed to parse Redis URL: %w", err)
 	}
 
-	client := redis.NewClient(opt)
-
-	// Test connection
-	ctx := context.Background()
-	if err := client.Ping(ctx).Err(); err != nil {
-		return nil, fmt.Errorf("failed to ping Redis: %w", err)
+	// Enable TLS if URL starts with rediss://
+	if strings.HasPrefix(redisURL, "rediss://") {
+		opt.TLSConfig = &tls.Config{
+			MinVersion: tls.VersionTLS12,
+		}
+		log.Info().Msg("Redis TLS enabled (rediss://)")
 	}
 
-	log.Info().Msg("Redis connection established")
+	client := redis.NewClient(opt)
+
+	// Test connection - fail fast on startup if Redis can't ping
+	ctx := context.Background()
+	if err := client.Ping(ctx).Err(); err != nil {
+		return nil, fmt.Errorf("failed to ping Redis (connection unhealthy): %w", err)
+	}
+
+	log.Info().Str("url", maskRedisURL(redisURL)).Msg("Redis connection established and healthy")
 	return client, nil
+}
+
+// maskRedisURL masks sensitive parts of Redis URL for logging
+func maskRedisURL(url string) string {
+	if strings.Contains(url, "@") {
+		parts := strings.Split(url, "@")
+		if len(parts) == 2 {
+			return "***@" + parts[1]
+		}
+	}
+	return "***"
 }
 
 func RunMigrations(databaseURL string) error {

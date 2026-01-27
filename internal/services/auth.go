@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/multitenant-saas/api/internal/models"
 	"github.com/redis/go-redis/v9"
+	"github.com/rs/zerolog/log"
 	"golang.org/x/crypto/bcrypt"
 	"golang.org/x/oauth2"
 	githuboauth "golang.org/x/oauth2/github"
@@ -126,6 +127,13 @@ func (s *AuthService) Login(ctx context.Context, email, password string) (*model
 func (s *AuthService) CreateSession(ctx context.Context, userID uuid.UUID) (string, error) {
 	sessionToken := generateSessionToken()
 	
+	// Check Redis connection health before attempting session creation
+	if err := s.redis.Ping(ctx).Err(); err != nil {
+		log.Error().Err(err).Msg("Redis connection unhealthy during session creation")
+		return "", fmt.Errorf("redis connection unhealthy: %w", err)
+	}
+	log.Info().Str("user_id", userID.String()).Msg("Redis connection healthy, proceeding with session creation")
+	
 	// Store session in Redis (24 hour expiry)
 	sessionKey := fmt.Sprintf("session:%s", sessionToken)
 	sessionData := map[string]interface{}{
@@ -133,13 +141,18 @@ func (s *AuthService) CreateSession(ctx context.Context, userID uuid.UUID) (stri
 		"expires_at": time.Now().Add(24 * time.Hour).Unix(),
 	}
 	
+	log.Info().Str("session_key", sessionKey).Str("user_id", userID.String()).Msg("Attempting to store session in Redis")
 	if err := s.redis.HSet(ctx, sessionKey, sessionData).Err(); err != nil {
-		return "", err
+		log.Error().Err(err).Str("session_key", sessionKey).Msg("Failed to store session in Redis (HSet failed)")
+		return "", fmt.Errorf("session store failed (HSet): %w", err)
 	}
+	log.Info().Str("session_key", sessionKey).Msg("Session stored in Redis successfully")
 	
 	if err := s.redis.Expire(ctx, sessionKey, 24*time.Hour).Err(); err != nil {
-		return "", err
+		log.Error().Err(err).Str("session_key", sessionKey).Msg("Failed to set session expiry in Redis (Expire failed)")
+		return "", fmt.Errorf("session expiry failed (Expire): %w", err)
 	}
+	log.Info().Str("session_key", sessionKey).Msg("Session expiry set successfully")
 
 	return sessionToken, nil
 }

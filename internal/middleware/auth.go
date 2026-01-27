@@ -156,7 +156,7 @@ func (m *Middleware) CORS(next http.Handler) http.Handler {
 		allowedOrigin := m.config.CORSOrigin
 		isDevelopment := m.config.Env == "development"
 
-		// In production: exact match required
+		// In production: exact match required (no wildcard)
 		// In development: allow localhost:3000
 		if isDevelopment {
 			// Development: allow http://localhost:3000
@@ -167,12 +167,15 @@ func (m *Middleware) CORS(next http.Handler) http.Handler {
 				w.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-Workspace-ID")
 			}
 		} else {
-			// Production: exact match with CORS_ORIGIN
+			// Production: exact match with CORS_ORIGIN (must be exactly https://mtsaasweb.vercel.app or configured value)
 			if origin == allowedOrigin {
 				w.Header().Set("Access-Control-Allow-Origin", allowedOrigin)
 				w.Header().Set("Access-Control-Allow-Credentials", "true")
 				w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
 				w.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-Workspace-ID")
+			} else {
+				// Log mismatch for debugging
+				log.Warn().Str("request_origin", origin).Str("allowed_origin", allowedOrigin).Msg("CORS origin mismatch in production")
 			}
 		}
 
